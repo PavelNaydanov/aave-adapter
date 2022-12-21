@@ -2,11 +2,15 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-import "../src/AaveLendingAdapter.sol";
 import {IERC20} from "openzeppelin-contracts/token/ERC20/ERC20.sol";
-import {IUniswapV2Router02} from "../src/interfaces/IUniswapV2Router02.sol";
+import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "../src/AaveLendingAdapter.sol";
+import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
 contract AaveLengingAdapterTest is Test {
+    using SafeERC20 for IERC20;
+
     uint256 mainnetFork;
 
     string MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
@@ -14,7 +18,6 @@ contract AaveLengingAdapterTest is Test {
     AaveLendingAdapter adapter;
 
     IERC20 DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
-    IERC20 USDT = IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     IERC20 USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IUniswapV2Router02 uniswapRouter = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     ILendingPool lendingPool = ILendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9);
@@ -24,6 +27,8 @@ contract AaveLengingAdapterTest is Test {
 
         vm.selectFork(mainnetFork);
         assertEq(vm.activeFork(), mainnetFork);
+
+        vm.rollFork(16_233_000);
 
         adapter = new AaveLendingAdapter(address(DAI), address(USDC));
 
@@ -35,7 +40,7 @@ contract AaveLengingAdapterTest is Test {
     function test_addCollateral() public {
         uint256 amount = 10000;
 
-        DAI.approve(address(adapter), amount);
+        DAI.safeApprove(address(adapter), amount);
 
         uint256 balanceBefore = DAI.balanceOf(address(this));
 
@@ -99,7 +104,7 @@ contract AaveLengingAdapterTest is Test {
     // region - Borrow -
 
     function _beforeEach_borrow(uint256 amount) private {
-        DAI.approve(address(adapter), amount);
+        DAI.safeApprove(address(adapter), amount);
 
         adapter.addCollateral(amount);
     }
@@ -124,7 +129,7 @@ contract AaveLengingAdapterTest is Test {
     // region - Repay borrow -
 
     function _beforeEach_repayBorrow(uint256 collateralAmount, uint256 borrowAmount) public {
-        DAI.approve(address(adapter), collateralAmount);
+        DAI.safeApprove(address(adapter), collateralAmount);
 
         adapter.addCollateral(collateralAmount);
 
@@ -137,7 +142,7 @@ contract AaveLengingAdapterTest is Test {
 
         _beforeEach_repayBorrow(collateralAmount, borrowAmount);
 
-        USDC.approve(address(adapter), borrowAmount);
+        USDC.safeApprove(address(adapter), borrowAmount);
         adapter.repayBorrow(borrowAmount, 1);
 
         (, uint256 totalDebtETH,,,,) = lendingPool.getUserAccountData(address(adapter));
@@ -151,7 +156,7 @@ contract AaveLengingAdapterTest is Test {
     function _beforeEach_liquidate(uint256 collateralAmount, uint256 borrowAmount, uint256 repayAmount) private returns (address) {
         address liquidator = vm.addr(1);
 
-        DAI.approve(address(adapter), collateralAmount);
+        DAI.safeApprove(address(adapter), collateralAmount);
         adapter.addCollateral(collateralAmount);
 
         adapter.borrow(borrowAmount, 1);
@@ -163,7 +168,7 @@ contract AaveLengingAdapterTest is Test {
 
     function test_liquidate() external {
         uint256 collateralAmount = 100e18;
-        uint256 borrowAmount = 77e6;
+        uint256 borrowAmount = 76e6;
         uint256 repayAmount = borrowAmount / 2;
 
         address liquidator = _beforeEach_liquidate(collateralAmount, borrowAmount, repayAmount);
@@ -174,7 +179,7 @@ contract AaveLengingAdapterTest is Test {
         assertLt(healthFactor, 1 ether);
 
         vm.startPrank(liquidator);
-        USDC.approve(address(adapter), repayAmount);
+        USDC.safeApprove(address(adapter), repayAmount);
         adapter.liquidate(address(adapter), repayAmount);
 
         assertGt(DAI.balanceOf(liquidator), 0);
